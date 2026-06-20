@@ -46,6 +46,6 @@ jobs:
 
       - name: Logytics Analysis
         if: failure()
-        uses: ./
+        uses: logytics-pro/action@v1
         with:
           logytics-api-key: ${{ secrets.LOGYTICS_API_KEY }}
