@@ -56,17 +56,20 @@ async function fetchJobLogs(token, jobId) {
     const { context } = github;
 
     // Wait briefly for GitHub to finalize logs
+    core.info(`Waiting 2s for GitHub to finalize logs...`);
     await sleep(2000);
 
-    const { data } = await octokit.rest.actions.downloadJobLogsForWorkflowRun({
+    core.info(`Calling downloadJobLogsForWorkflowRun...`);
+    const response = await octokit.rest.actions.downloadJobLogsForWorkflowRun({
       owner: context.repo.owner,
       repo: context.repo.repo,
       job_id: jobId,
     });
 
-    return data;
+    core.info(`API response status: ${response.status}, data length: ${response.data?.length || 0}`);
+    return response.data;
   } catch (e) {
-    core.warning(`Could not fetch job logs: ${e.message}`);
+    core.warning(`Could not fetch job logs: ${e.message} (${e.status || 'no status'})`);
 
     // Try workflow run logs as fallback
     try {
@@ -107,13 +110,19 @@ async function collectLogs(token) {
     for (const job of jobs.jobs) {
       if (job.status === "in_progress" || job.status === "completed") {
         core.info(`Fetching logs for job: ${job.name} (${job.id})...`);
-        const jobLogs = await fetchJobLogs(token, job.id);
-        if (jobLogs) {
-          const logStr = typeof jobLogs === 'string' ? jobLogs : JSON.stringify(jobLogs);
-          logs.push(logStr);
-          core.info(`Got ${logStr.length} bytes of logs (type: ${typeof jobLogs})`);
-          // Show preview of logs
-          core.info(`Log preview: ${logStr.substring(0, 500)}`);
+        try {
+          const jobLogs = await fetchJobLogs(token, job.id);
+          core.info(`fetchJobLogs returned: ${jobLogs ? 'data' : 'null/undefined'}`);
+          if (jobLogs) {
+            const logStr = typeof jobLogs === 'string' ? jobLogs : JSON.stringify(jobLogs);
+            logs.push(logStr);
+            core.info(`Got ${logStr.length} bytes of logs (type: ${typeof jobLogs})`);
+            core.info(`Log preview: ${logStr.substring(0, 500)}`);
+          } else {
+            core.warning(`No logs returned for job ${job.id}`);
+          }
+        } catch (fetchErr) {
+          core.warning(`Error fetching logs for job ${job.id}: ${fetchErr.message}`);
         }
       }
     }
