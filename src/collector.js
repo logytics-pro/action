@@ -91,12 +91,53 @@ async function fetchJobLogs(token, jobId) {
   }
 }
 
+async function getAnnotations(token) {
+  try {
+    const octokit = github.getOctokit(token);
+    const { context } = github;
+
+    // Get check runs for this commit
+    const { data: checkRuns } = await octokit.rest.checks.listForRef({
+      owner: context.repo.owner,
+      repo: context.repo.repo,
+      ref: context.sha,
+    });
+
+    const annotations = [];
+    for (const check of checkRuns.check_runs) {
+      if (check.output && check.output.annotations_count > 0) {
+        const { data: annotationData } = await octokit.rest.checks.listAnnotations({
+          owner: context.repo.owner,
+          repo: context.repo.repo,
+          check_run_id: check.id,
+        });
+        annotations.push(...annotationData);
+      }
+    }
+
+    core.info(`Found ${annotations.length} annotations`);
+    return annotations;
+  } catch (e) {
+    core.warning(`Could not fetch annotations: ${e.message}`);
+    return [];
+  }
+}
+
 async function collectLogs(token) {
   const logs = [];
   const failedSteps = await getFailedSteps(token);
 
-  // Fetch logs for ALL jobs in this run (not just failed steps)
-  // because step status may still be "pending" when this action runs
+  // Try to get annotations (error messages from checks)
+  const annotations = await getAnnotations(token);
+  if (annotations.length > 0) {
+    const annotationText = annotations.map(a =>
+      `${a.path || ''}:${a.start_line || ''} ${a.annotation_level}: ${a.message}`
+    ).join('\n');
+    logs.push(`=== Annotations ===\n${annotationText}`);
+    core.info(`Annotation preview: ${annotationText.substring(0, 300)}`);
+  }
+
+  // Try to fetch job logs (may fail for in-progress jobs)
   try {
     const octokit = github.getOctokit(token);
     const { context } = github;
@@ -112,22 +153,19 @@ async function collectLogs(token) {
         core.info(`Fetching logs for job: ${job.name} (${job.id})...`);
         try {
           const jobLogs = await fetchJobLogs(token, job.id);
-          core.info(`fetchJobLogs returned: ${jobLogs ? 'data' : 'null/undefined'}`);
           if (jobLogs) {
             const logStr = typeof jobLogs === 'string' ? jobLogs : JSON.stringify(jobLogs);
             logs.push(logStr);
-            core.info(`Got ${logStr.length} bytes of logs (type: ${typeof jobLogs})`);
+            core.info(`Got ${logStr.length} bytes of logs`);
             core.info(`Log preview: ${logStr.substring(0, 500)}`);
-          } else {
-            core.warning(`No logs returned for job ${job.id}`);
           }
         } catch (fetchErr) {
-          core.warning(`Error fetching logs for job ${job.id}: ${fetchErr.message}`);
+          core.info(`Job logs not available (expected for in-progress jobs)`);
         }
       }
     }
   } catch (e) {
-    core.warning(`Could not fetch job logs: ${e.message}`);
+    core.warning(`Could not list jobs: ${e.message}`);
   }
 
   // Also check GITHUB_STEP_SUMMARY
