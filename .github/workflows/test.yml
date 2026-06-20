@@ -64,10 +64,32 @@ jobs:
           echo "error Command failed with exit code 1."
           exit 1
 
+  test-continue-on-error:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Lint with errors (continue-on-error)
+        continue-on-error: true
+        run: |
+          echo "> eslint src/"
+          echo ""
+          echo "/src/api/handler.js"
+          echo "  12:5  error  'response' is defined but never used  no-unused-vars"
+          echo "  25:10 error  Unexpected console statement          no-console"
+          echo "  38:1  error  Missing return statement              consistent-return"
+          echo ""
+          echo "✖ 3 problems (3 errors, 0 warnings)"
+          exit 1
+
+      - name: This step runs despite error above
+        run: echo "Continuing after lint error..."
+
   analyze:
     runs-on: ubuntu-latest
-    needs: [test-typescript-error, test-module-error]
-    if: always() && (needs.test-typescript-error.result == 'failure' || needs.test-module-error.result == 'failure')
+    needs: [test-typescript-error, test-module-error, test-continue-on-error]
+    if: always() && (needs.test-typescript-error.result == 'failure' || needs.test-module-error.result == 'failure' || needs.test-continue-on-error.result == 'success')
     steps:
       - name: Logytics Analysis
         uses: logytics-pro/action@v1

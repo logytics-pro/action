@@ -19,12 +19,13 @@ async function getFailedSteps(token, runId) {
     core.info(`Found ${jobs.jobs.length} job(s) in workflow run`);
 
     for (const job of jobs.jobs) {
-      core.info(`Job: ${job.name} (status: ${job.status}, steps: ${job.steps?.length || 0})`);
+      core.info(`Job: ${job.name} (status: ${job.status}, conclusion: ${job.conclusion}, steps: ${job.steps?.length || 0})`);
 
       if (job.status === "completed" || job.status === "in_progress") {
         for (const step of job.steps || []) {
           core.info(`  Step: ${step.name} (status: ${step.status}, conclusion: ${step.conclusion})`);
-          if (step.conclusion === "failure") {
+          // Capture failed steps, including those with continue-on-error
+          if (step.conclusion === "failure" || step.conclusion === "cancelled") {
             failedSteps.push({
               jobId: job.id,
               jobName: job.name,
@@ -32,6 +33,7 @@ async function getFailedSteps(token, runId) {
               stepNumber: step.number,
               startedAt: step.started_at,
               completedAt: step.completed_at,
+              continueOnError: job.conclusion === "success" && step.conclusion === "failure",
             });
           }
         }
