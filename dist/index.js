@@ -30047,24 +30047,38 @@ async function sleep(ms) {
 
 async function fetchJobLogs(token, jobId) {
   try {
-    const octokit = github.getOctokit(token);
     const { context } = github;
 
     // Wait briefly for GitHub to finalize logs
-    core.info(`Waiting 2s for GitHub to finalize logs...`);
-    await sleep(2000);
+    core.info(`Waiting 3s for GitHub to finalize logs...`);
+    await sleep(3000);
 
-    core.info(`Calling downloadJobLogsForWorkflowRun...`);
-    const response = await octokit.rest.actions.downloadJobLogsForWorkflowRun({
-      owner: context.repo.owner,
-      repo: context.repo.repo,
-      job_id: jobId,
+    // Use direct fetch with proper headers
+    const url = `https://api.github.com/repos/${context.repo.owner}/${context.repo.repo}/actions/jobs/${jobId}/logs`;
+    core.info(`Fetching logs from: ${url}`);
+
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'logytics-action'
+      },
+      redirect: 'follow'
     });
 
-    core.info(`API response status: ${response.status}, data length: ${response.data?.length || 0}`);
-    return response.data;
+    core.info(`API response status: ${response.status}`);
+
+    if (response.ok) {
+      const text = await response.text();
+      core.info(`Got ${text.length} bytes of logs`);
+      return text;
+    } else {
+      const errorText = await response.text();
+      core.warning(`API returned ${response.status}: ${errorText.substring(0, 200)}`);
+      return null;
+    }
   } catch (e) {
-    core.warning(`Could not fetch job logs: ${e.message} (${e.status || 'no status'})`);
+    core.warning(`Could not fetch job logs: ${e.message}`);
 
     // Try workflow run logs as fallback
     try {
