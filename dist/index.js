@@ -30104,11 +30104,14 @@ async function collectLogs(token) {
   // Check for common log files
   const workspace = process.env.GITHUB_WORKSPACE || ".";
   const logPatterns = [
+    "test-output.log",
     "npm-debug.log",
     "yarn-error.log",
     "pnpm-debug.log",
     "jest.log",
     "test-results.log",
+    "build.log",
+    "error.log",
   ];
 
   for (const pattern of logPatterns) {
