@@ -30103,6 +30103,8 @@ async function collectLogs(token) {
 
   // Check for common log files
   const workspace = process.env.GITHUB_WORKSPACE || ".";
+  core.info(`Workspace: ${workspace}`);
+
   const logPatterns = [
     "test-output.log",
     "npm-debug.log",
@@ -30116,15 +30118,18 @@ async function collectLogs(token) {
 
   for (const pattern of logPatterns) {
     const fullPath = path.join(workspace, pattern);
+    const exists = fs.existsSync(fullPath);
+    core.info(`Checking ${fullPath}: ${exists ? 'EXISTS' : 'not found'}`);
     try {
-      if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+      if (exists && fs.statSync(fullPath).isFile()) {
         const content = fs.readFileSync(fullPath, "utf8");
+        core.info(`Read ${content.length} bytes from ${pattern}`);
         if (content.length < 100000) {
           logs.push(`=== ${pattern} ===\n${content}`);
         }
       }
     } catch (e) {
-      // ignore
+      core.warning(`Error reading ${pattern}: ${e.message}`);
     }
   }
 
