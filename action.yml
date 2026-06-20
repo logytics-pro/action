@@ -1,0 +1,34 @@
+name: 'Logytics Pro CI Intelligence'
+description: 'Analyze CI failures and get AI-powered insights'
+author: 'Logytics'
+branding:
+  icon: 'zap'
+  color: 'purple'
+
+inputs:
+  logytics-api-key:
+    description: 'Your Logytics Pro API key'
+    required: true
+  api-url:
+    description: 'Logytics Pro API URL (optional)'
+    required: false
+    default: 'https://api.logytics.dev'
+  openai-api-key:
+    description: 'OpenAI API key for free mode analysis (optional)'
+    required: false
+
+outputs:
+  failure-id:
+    description: 'The ID of the recorded failure'
+  signature:
+    description: 'The failure signature'
+  is-recurring:
+    description: 'Whether this is a recurring failure'
+  root-cause:
+    description: 'AI-generated root cause analysis'
+  suggested-fix:
+    description: 'AI-suggested fix for the failure'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
