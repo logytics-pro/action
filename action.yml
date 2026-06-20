@@ -24,6 +24,9 @@ inputs:
     description: 'Create a PR with the suggested fix (requires write permissions)'
     required: false
     default: 'false'
+  workflow-run-id:
+    description: 'Workflow run ID to analyze (for workflow_run trigger)'
+    required: false
 
 outputs:
   failure-id:

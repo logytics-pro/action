@@ -3,7 +3,7 @@ const path = require("path");
 const github = require("@actions/github");
 const core = require("@actions/core");
 
-async function getFailedSteps(token) {
+async function getFailedSteps(token, runId) {
   const failedSteps = [];
 
   try {
@@ -13,7 +13,7 @@ async function getFailedSteps(token) {
     const { data: jobs } = await octokit.rest.actions.listJobsForWorkflowRun({
       owner: context.repo.owner,
       repo: context.repo.repo,
-      run_id: context.runId,
+      run_id: runId,
     });
 
     core.info(`Found ${jobs.jobs.length} job(s) in workflow run`);
@@ -54,10 +54,6 @@ async function fetchJobLogs(token, jobId) {
   try {
     const { context } = github;
 
-    // Wait briefly for GitHub to finalize logs
-    core.info(`Waiting 3s for GitHub to finalize logs...`);
-    await sleep(3000);
-
     // Use direct fetch with proper headers
     const url = `https://api.github.com/repos/${context.repo.owner}/${context.repo.repo}/actions/jobs/${jobId}/logs`;
     core.info(`Fetching logs from: ${url}`);
@@ -84,24 +80,7 @@ async function fetchJobLogs(token, jobId) {
     }
   } catch (e) {
     core.warning(`Could not fetch job logs: ${e.message}`);
-
-    // Try workflow run logs as fallback
-    try {
-      const { context } = github;
-      const octokit = github.getOctokit(token);
-
-      const { data } = await octokit.rest.actions.downloadWorkflowRunLogs({
-        owner: context.repo.owner,
-        repo: context.repo.repo,
-        run_id: context.runId,
-      });
-
-      core.info("Got workflow run logs as fallback");
-      return data;
-    } catch (e2) {
-      core.warning(`Could not fetch workflow logs either: ${e2.message}`);
-      return null;
-    }
+    return null;
   }
 }
 
@@ -137,9 +116,11 @@ async function getAnnotations(token) {
   }
 }
 
-async function collectLogs(token) {
+async function collectLogs(token, runId) {
   const logs = [];
-  const failedSteps = await getFailedSteps(token);
+  const failedSteps = await getFailedSteps(token, runId);
+
+  core.info(`Collecting logs for workflow run: ${runId}`);
 
   // Try to get annotations (error messages from checks)
   const annotations = await getAnnotations(token);
@@ -151,7 +132,7 @@ async function collectLogs(token) {
     core.info(`Annotation preview: ${annotationText.substring(0, 300)}`);
   }
 
-  // Try to fetch job logs (may fail for in-progress jobs)
+  // Try to fetch job logs
   try {
     const octokit = github.getOctokit(token);
     const { context } = github;
@@ -159,7 +140,7 @@ async function collectLogs(token) {
     const { data: jobs } = await octokit.rest.actions.listJobsForWorkflowRun({
       owner: context.repo.owner,
       repo: context.repo.repo,
-      run_id: context.runId,
+      run_id: runId,
     });
 
     for (const job of jobs.jobs) {

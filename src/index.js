@@ -14,14 +14,19 @@ async function run() {
     const openaiKey = core.getInput("openai-api-key");
     const githubToken = core.getInput("github-token") || process.env.GITHUB_TOKEN;
     const makeFix = core.getInput("make-fix") === "true";
+    const workflowRunId = core.getInput("workflow-run-id");
 
     const { context } = github;
     const repo = `${context.repo.owner}/${context.repo.repo}`;
-    const commitSha = context.sha;
-    const workflowName = context.workflow;
 
+    // Use workflow_run context if available, otherwise current context
+    const commitSha = context.payload.workflow_run?.head_sha || context.sha;
+    const workflowName = context.payload.workflow_run?.name || context.workflow;
+    const runId = workflowRunId || context.payload.workflow_run?.id || context.runId;
+
+    core.info(`Logytics: Analyzing workflow run ${runId}...`);
     core.info("Logytics: Collecting CI logs...");
-    const { logs: rawLogs, failedSteps } = await collectLogs(githubToken);
+    const { logs: rawLogs, failedSteps } = await collectLogs(githubToken, runId);
 
     if (failedSteps.length > 0) {
       core.info(`Logytics: Found ${failedSteps.length} failed step(s)`);
