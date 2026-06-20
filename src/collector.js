@@ -68,16 +68,30 @@ async function collectLogs(token) {
   const logs = [];
   const failedSteps = await getFailedSteps(token);
 
-  // Fetch actual job logs from GitHub API
-  const jobIds = [...new Set(failedSteps.map(s => s.jobId))];
-  for (const jobId of jobIds) {
-    if (jobId) {
-      core.info(`Fetching logs for job ${jobId}...`);
-      const jobLogs = await fetchJobLogs(token, jobId);
-      if (jobLogs) {
-        logs.push(jobLogs);
+  // Fetch logs for ALL jobs in this run (not just failed steps)
+  // because step status may still be "pending" when this action runs
+  try {
+    const octokit = github.getOctokit(token);
+    const { context } = github;
+
+    const { data: jobs } = await octokit.rest.actions.listJobsForWorkflowRun({
+      owner: context.repo.owner,
+      repo: context.repo.repo,
+      run_id: context.runId,
+    });
+
+    for (const job of jobs.jobs) {
+      if (job.status === "in_progress" || job.status === "completed") {
+        core.info(`Fetching logs for job: ${job.name} (${job.id})...`);
+        const jobLogs = await fetchJobLogs(token, job.id);
+        if (jobLogs) {
+          logs.push(jobLogs);
+          core.info(`Got ${jobLogs.length} bytes of logs`);
+        }
       }
     }
+  } catch (e) {
+    core.warning(`Could not fetch job logs: ${e.message}`);
   }
 
   // Also check GITHUB_STEP_SUMMARY
