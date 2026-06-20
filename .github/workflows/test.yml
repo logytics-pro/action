@@ -24,14 +24,24 @@ jobs:
 
       - name: Run failing test
         run: |
-          echo "Running tests..."
-          echo "Test 1: PASSED"
-          echo "Test 2: PASSED"
-          echo "Test 3: FAILED"
+          echo "> jest --coverage"
           echo ""
-          echo "Error: Expected 'success' but got 'failure'"
-          echo "  at Object.<anonymous> (src/utils.test.js:42:10)"
-          echo "  at Module._compile (internal/modules/cjs/loader.js:1085:14)"
+          echo "FAIL src/utils.test.js"
+          echo "  ● validateInput › should reject invalid email"
+          echo ""
+          echo "    TypeError: Cannot read properties of undefined (reading 'email')"
+          echo ""
+          echo "      40 |   const validateInput = (data) => {"
+          echo "      41 |     if (!data) throw new Error('Data required');"
+          echo "    > 42 |     return data.email.includes('@');"
+          echo "         |                ^"
+          echo "      43 |   };"
+          echo ""
+          echo "      at validateInput (src/utils.js:42:16)"
+          echo "      at Object.<anonymous> (src/utils.test.js:15:5)"
+          echo ""
+          echo "Test Suites: 1 failed, 1 total"
+          echo "Tests:       1 failed, 2 passed, 3 total"
           exit 1
 
       - name: Logytics Analysis
