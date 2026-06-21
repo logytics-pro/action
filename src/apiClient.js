@@ -48,9 +48,9 @@ async function sendToApi(apiUrl, apiKey, payload, openaiKey) {
     );
 
     req.on("error", reject);
-    req.setTimeout(30000, () => {
+    req.setTimeout(120000, () => {
       req.destroy();
-      reject(new Error("API request timeout"));
+      reject(new Error("API request timeout (2 min)"));
     });
 
     req.write(body);
