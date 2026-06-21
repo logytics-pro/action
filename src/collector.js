@@ -174,8 +174,7 @@ async function collectLogs(token, runId) {
     core.info(`Total jobs in workflow: ${jobs.jobs.length}`);
     jobs.jobs.forEach(j => core.info(`  - ${j.name}: status=${j.status}, conclusion=${j.conclusion}`));
 
-    // Fetch logs for ALL completed jobs (not just failed ones)
-    // This catches continue-on-error jobs that show as "success" but have errors
+    // Fetch logs for ALL completed jobs - let AI analyze everything
     for (const job of jobs.jobs) {
       // Skip the analyze job itself
       if (job.name.toLowerCase().includes('analyze') || job.name.toLowerCase().includes('logytics')) {
@@ -191,7 +190,7 @@ async function collectLogs(token, runId) {
           core.info(`  Step: ${step.name} | conclusion=${step.conclusion} | outcome=${step.outcome}`);
         }
 
-        // Fetch logs for ALL completed jobs
+        // Fetch logs for ALL completed jobs (regardless of conclusion)
         core.info(`Fetching logs for job: ${job.name} (${job.id})...`);
         try {
           const jobLogs = await fetchJobLogs(token, job.id);
@@ -203,39 +202,33 @@ async function collectLogs(token, runId) {
             // Check if logs contain error patterns
             const matchedPatterns = errorPatterns.filter(p => p.test(logStr));
             const hasErrorInLogs = matchedPatterns.length > 0;
-            core.info(`  Error patterns matched: ${matchedPatterns.length} (hasErrors: ${hasErrorInLogs})`);
-            if (hasErrorInLogs) {
-              core.info(`  Matched: ${matchedPatterns.map(p => p.toString()).join(', ')}`);
-            }
+            core.info(`  Error patterns matched: ${matchedPatterns.length}`);
 
+            // ALWAYS include logs if job failed OR has errors in logs
+            // This ensures continue-on-error jobs are captured
             if (job.conclusion === "failure" || hasErrorInLogs) {
               // Tag logs with job name for multi-error analysis
               logs.push(`\n=== JOB: ${job.name} ===\n${logStr}`);
-              core.info(`Got ${logStr.length} bytes of logs from ${job.name} (errors detected: ${hasErrorInLogs})`);
+              core.info(`  ✓ Added logs from ${job.name}`);
 
-              // If job succeeded but has errors, mark as continue-on-error
+              // If job succeeded but has errors, it's continue-on-error
               if (job.conclusion === "success" && hasErrorInLogs) {
                 core.info(`  Continue-on-error detected in ${job.name}`);
-                // Find which step likely had the error - skip common steps like Checkout
+
+                // Find the actual step name (skip setup steps)
                 let stepName = null;
-                const skipSteps = ['checkout', 'setup', 'install', 'cache'];
+                const skipPatterns = ['checkout', 'set up job', 'setup node', 'install', 'cache', 'post ', 'complete job', 'this step runs'];
 
                 for (const step of job.steps || []) {
                   const stepLower = step.name.toLowerCase();
-                  // Skip common setup steps
-                  if (skipSteps.some(s => stepLower.includes(s))) continue;
-                  // Skip steps that clearly succeeded without issues
-                  if (step.name.toLowerCase().includes('this step runs')) continue;
-
-                  // This is likely the step with continue-on-error
+                  if (skipPatterns.some(s => stepLower.includes(s))) continue;
                   stepName = step.name;
-                  core.info(`  Identified failed step: ${stepName}`);
                   break;
                 }
 
-                if (!stepName) stepName = "Error detected in logs";
+                if (!stepName) stepName = "Linting/Build step";
 
-                // Add to failed steps if not already there
+                // Add to failed steps
                 const alreadyTracked = failedSteps.some(s => s.jobName === job.name);
                 if (!alreadyTracked) {
                   failedSteps.push({
@@ -244,14 +237,15 @@ async function collectLogs(token, runId) {
                     stepName: stepName,
                     continueOnError: true,
                   });
+                  core.info(`  Added to failedSteps: ${job.name} -> ${stepName}`);
                 }
               }
             } else {
-              core.info(`Skipping ${job.name} - no errors in logs`);
+              core.info(`  ✗ No errors detected in ${job.name}`);
             }
           }
         } catch (fetchErr) {
-          core.info(`Job logs not available for ${job.name}: ${fetchErr.message}`);
+          core.warning(`Job logs not available for ${job.name}: ${fetchErr.message}`);
         }
       }
     }
@@ -318,10 +312,14 @@ async function collectLogs(token, runId) {
     };
   }
 
-  // Combine and limit size
+  // Combine logs - keep more for better analysis
   let combined = logs.join("\n\n");
-  if (combined.length > 50000) {
-    combined = combined.substring(combined.length - 50000);
+  core.info(`Total combined logs: ${combined.length} bytes from ${logs.length} sources`);
+
+  // Limit to 100KB but keep from the end (most recent/relevant)
+  if (combined.length > 100000) {
+    combined = combined.substring(combined.length - 100000);
+    core.info(`Truncated to last 100KB`);
   }
 
   return { logs: combined, failedSteps };
