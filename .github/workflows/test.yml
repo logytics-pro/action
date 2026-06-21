@@ -86,10 +86,100 @@ jobs:
       - name: This step runs despite error above
         run: echo "Continuing after lint error..."
 
+  test-timeout-error:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run slow test (Timeout)
+        run: |
+          echo "> jest --testTimeout=5000"
+          echo ""
+          echo "FAIL src/integration/api.test.js"
+          echo "  ● API Integration › should fetch user data"
+          echo ""
+          echo "    Timeout - Async callback was not invoked within the 5000 ms timeout specified by jest.setTimeout."
+          echo ""
+          echo "      18 |   it('should fetch user data', async () => {"
+          echo "    > 19 |     const response = await api.getUser(123);"
+          echo "         |                      ^"
+          echo "      20 |     expect(response.status).toBe(200);"
+          echo ""
+          echo "      at Timeout._onTimeout (node_modules/jest-jasmine2/build/queueRunner.js:68:21)"
+          echo ""
+          echo "Test Suites: 1 failed, 1 total"
+          exit 1
+
+  test-dependency-error:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies (npm error)
+        run: |
+          echo "> npm install"
+          echo ""
+          echo "npm ERR! code ERESOLVE"
+          echo "npm ERR! ERESOLVE unable to resolve dependency tree"
+          echo ""
+          echo "npm ERR! Found: react@18.2.0"
+          echo "npm ERR! node_modules/react"
+          echo "npm ERR!   react@\"^18.2.0\" from the root project"
+          echo ""
+          echo "npm ERR! Could not resolve dependency:"
+          echo "npm ERR! peer react@\"^17.0.0\" from react-beautiful-dnd@13.1.1"
+          echo "npm ERR! node_modules/react-beautiful-dnd"
+          echo ""
+          echo "npm ERR! Fix the upstream dependency conflict, or retry"
+          echo "npm ERR! with --force or --legacy-peer-deps"
+          exit 1
+
+  test-connection-error:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run database migration
+        run: |
+          echo "> npx prisma migrate deploy"
+          echo ""
+          echo "Prisma Migrate could not create the shadow database."
+          echo ""
+          echo "Error: P1001: Can't reach database server at 'localhost:5432'"
+          echo ""
+          echo "Error: connect ECONNREFUSED 127.0.0.1:5432"
+          echo "  at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1141:16)"
+          echo ""
+          echo "Please make sure your database server is running at localhost:5432."
+          exit 1
+
+  test-env-var-error:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run app startup
+        run: |
+          echo "> node server.js"
+          echo ""
+          echo "Error: Environment variable 'DATABASE_URL' is not set"
+          echo "  at validateEnv (/app/src/config.js:15:11)"
+          echo "  at Object.<anonymous> (/app/src/index.js:3:1)"
+          echo ""
+          echo "Required environment variables:"
+          echo "  - DATABASE_URL"
+          echo "  - JWT_SECRET"
+          echo "  - REDIS_URL"
+          exit 1
+
   analyze:
     runs-on: ubuntu-latest
-    needs: [test-typescript-error, test-module-error, test-continue-on-error]
-    if: always() && (needs.test-typescript-error.result == 'failure' || needs.test-module-error.result == 'failure' || needs.test-continue-on-error.result == 'success')
+    needs: [test-typescript-error, test-module-error, test-continue-on-error, test-timeout-error, test-dependency-error, test-connection-error, test-env-var-error]
+    if: always()
     steps:
       - name: Logytics Analysis
         uses: logytics-pro/action@v1
