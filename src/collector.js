@@ -155,7 +155,24 @@ async function collectLogs(token, runId) {
       run_id: runId,
     });
 
-    // Fetch logs for ALL completed jobs and analyze them for errors
+    // Error patterns to detect in logs
+    const errorPatterns = [
+      /error[:\s]/i,
+      /failed/i,
+      /exception/i,
+      /TypeError/i,
+      /SyntaxError/i,
+      /ReferenceError/i,
+      /FAIL\s/,
+      /exit code [1-9]/i,
+      /Module not found/i,
+      /Cannot resolve/i,
+      /✖\s+\d+\s+problem/i,
+      /no-unused-vars/i,
+    ];
+
+    // Fetch logs for ALL completed jobs (not just failed ones)
+    // This catches continue-on-error jobs that show as "success" but have errors
     for (const job of jobs.jobs) {
       // Skip the analyze job itself
       if (job.name.toLowerCase().includes('analyze') || job.name.toLowerCase().includes('logytics')) {
@@ -171,52 +188,41 @@ async function collectLogs(token, runId) {
           core.info(`  Step: ${step.name} | conclusion=${step.conclusion} | outcome=${step.outcome}`);
         }
 
-        // Check ALL failure indicators
-        const hasFailedConclusion = job.conclusion === "failure" || job.conclusion === "cancelled" || job.conclusion === "timed_out";
-        const hasFailedSteps = job.steps?.some(s =>
-          s.conclusion === "failure" ||
-          s.conclusion === "cancelled" ||
-          s.outcome === "failure" ||
-          s.outcome === "cancelled"
-        );
+        // Fetch logs for ALL jobs to catch continue-on-error errors
+        core.info(`Fetching logs for job: ${job.name} (${job.id})...`);
+        try {
+          const jobLogs = await fetchJobLogs(token, job.id);
+          if (jobLogs) {
+            const logStr = typeof jobLogs === 'string' ? jobLogs : JSON.stringify(jobLogs);
 
-        core.info(`  Job failed: ${hasFailedConclusion} | Has failed steps: ${hasFailedSteps}`);
+            // Check if logs contain error patterns
+            const hasErrorInLogs = errorPatterns.some(p => p.test(logStr));
 
-        // Fetch logs if job failed OR any step failed (including continue-on-error)
-        if (hasFailedConclusion || hasFailedSteps) {
-          core.info(`Fetching logs for job: ${job.name} (${job.id})...`);
-          try {
-            const jobLogs = await fetchJobLogs(token, job.id);
-            if (jobLogs) {
-              const logStr = typeof jobLogs === 'string' ? jobLogs : JSON.stringify(jobLogs);
+            if (job.conclusion === "failure" || hasErrorInLogs) {
               // Tag logs with job name for multi-error analysis
               logs.push(`\n=== JOB: ${job.name} ===\n${logStr}`);
-              core.info(`Got ${logStr.length} bytes of logs from ${job.name}`);
+              core.info(`Got ${logStr.length} bytes of logs from ${job.name} (errors detected: ${hasErrorInLogs})`);
 
-              // Also parse logs for error patterns
-              const errorPatterns = [
-                /error[:\s]/i,
-                /failed/i,
-                /exception/i,
-                /TypeError/i,
-                /SyntaxError/i,
-                /ReferenceError/i,
-                /FAIL\s/,
-                /exit code [1-9]/i,
-                /Module not found/i,
-                /Cannot resolve/i,
-              ];
-
-              const hasErrorInLogs = errorPatterns.some(p => p.test(logStr));
-              if (hasErrorInLogs) {
-                core.info(`  Error patterns detected in logs for ${job.name}`);
+              // If job succeeded but has errors, mark as continue-on-error
+              if (job.conclusion === "success" && hasErrorInLogs) {
+                core.info(`  Continue-on-error detected in ${job.name}`);
+                // Add to failed steps if not already there
+                const alreadyTracked = failedSteps.some(s => s.jobName === job.name);
+                if (!alreadyTracked) {
+                  failedSteps.push({
+                    jobId: job.id,
+                    jobName: job.name,
+                    stepName: "Error in logs (continue-on-error)",
+                    continueOnError: true,
+                  });
+                }
               }
+            } else {
+              core.info(`Skipping ${job.name} - no errors in logs`);
             }
-          } catch (fetchErr) {
-            core.info(`Job logs not available for ${job.name}: ${fetchErr.message}`);
           }
-        } else {
-          core.info(`Skipping job ${job.name} - no failures detected in metadata`);
+        } catch (fetchErr) {
+          core.info(`Job logs not available for ${job.name}: ${fetchErr.message}`);
         }
       }
     }
