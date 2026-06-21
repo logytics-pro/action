@@ -23,9 +23,19 @@ async function getFailedSteps(token, runId) {
 
       if (job.status === "completed" || job.status === "in_progress") {
         for (const step of job.steps || []) {
-          core.info(`  Step: ${step.name} (status: ${step.status}, conclusion: ${step.conclusion})`);
-          // Capture failed steps, including those with continue-on-error
-          if (step.conclusion === "failure" || step.conclusion === "cancelled") {
+          // Check ALL possible failure indicators
+          const isFailed =
+            step.conclusion === "failure" ||
+            step.conclusion === "cancelled" ||
+            step.conclusion === "timed_out" ||
+            step.outcome === "failure" ||
+            step.outcome === "cancelled" ||
+            step.outcome === "timed_out" ||
+            step.status === "failure";
+
+          core.info(`  Step: ${step.name} | status=${step.status} | conclusion=${step.conclusion} | outcome=${step.outcome} | failed=${isFailed}`);
+
+          if (isFailed) {
             failedSteps.push({
               jobId: job.id,
               jobName: job.name,
@@ -33,7 +43,7 @@ async function getFailedSteps(token, runId) {
               stepNumber: step.number,
               startedAt: step.started_at,
               completedAt: step.completed_at,
-              continueOnError: job.conclusion === "success" && step.conclusion === "failure",
+              continueOnError: step.outcome === "failure" && step.conclusion !== "failure",
             });
           }
         }
@@ -145,7 +155,7 @@ async function collectLogs(token, runId) {
       run_id: runId,
     });
 
-    // Fetch logs for ALL completed jobs (including successful ones with continue-on-error failures)
+    // Fetch logs for ALL completed jobs and analyze them for errors
     for (const job of jobs.jobs) {
       // Skip the analyze job itself
       if (job.name.toLowerCase().includes('analyze') || job.name.toLowerCase().includes('logytics')) {
@@ -153,14 +163,27 @@ async function collectLogs(token, runId) {
         continue;
       }
 
-      core.info(`Checking job: ${job.name} (status: ${job.status}, conclusion: ${job.conclusion})`);
+      core.info(`Checking job: ${job.name} | status=${job.status} | conclusion=${job.conclusion}`);
 
       if (job.status === "completed") {
-        // Check if this job has any failed steps (including continue-on-error)
-        const hasFailedSteps = job.steps?.some(s => s.conclusion === "failure");
-        core.info(`  hasFailedSteps: ${hasFailedSteps}, steps: ${job.steps?.map(s => `${s.name}:${s.conclusion}`).join(', ')}`);
+        // Log all step details
+        for (const step of job.steps || []) {
+          core.info(`  Step: ${step.name} | conclusion=${step.conclusion} | outcome=${step.outcome}`);
+        }
 
-        if (job.conclusion === "failure" || hasFailedSteps) {
+        // Check ALL failure indicators
+        const hasFailedConclusion = job.conclusion === "failure" || job.conclusion === "cancelled" || job.conclusion === "timed_out";
+        const hasFailedSteps = job.steps?.some(s =>
+          s.conclusion === "failure" ||
+          s.conclusion === "cancelled" ||
+          s.outcome === "failure" ||
+          s.outcome === "cancelled"
+        );
+
+        core.info(`  Job failed: ${hasFailedConclusion} | Has failed steps: ${hasFailedSteps}`);
+
+        // Fetch logs if job failed OR any step failed (including continue-on-error)
+        if (hasFailedConclusion || hasFailedSteps) {
           core.info(`Fetching logs for job: ${job.name} (${job.id})...`);
           try {
             const jobLogs = await fetchJobLogs(token, job.id);
@@ -169,12 +192,31 @@ async function collectLogs(token, runId) {
               // Tag logs with job name for multi-error analysis
               logs.push(`\n=== JOB: ${job.name} ===\n${logStr}`);
               core.info(`Got ${logStr.length} bytes of logs from ${job.name}`);
+
+              // Also parse logs for error patterns
+              const errorPatterns = [
+                /error[:\s]/i,
+                /failed/i,
+                /exception/i,
+                /TypeError/i,
+                /SyntaxError/i,
+                /ReferenceError/i,
+                /FAIL\s/,
+                /exit code [1-9]/i,
+                /Module not found/i,
+                /Cannot resolve/i,
+              ];
+
+              const hasErrorInLogs = errorPatterns.some(p => p.test(logStr));
+              if (hasErrorInLogs) {
+                core.info(`  Error patterns detected in logs for ${job.name}`);
+              }
             }
           } catch (fetchErr) {
             core.info(`Job logs not available for ${job.name}: ${fetchErr.message}`);
           }
         } else {
-          core.info(`Skipping job ${job.name} - no failures detected`);
+          core.info(`Skipping job ${job.name} - no failures detected in metadata`);
         }
       }
     }

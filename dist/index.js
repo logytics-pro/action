@@ -30018,9 +30018,19 @@ async function getFailedSteps(token, runId) {
 
       if (job.status === "completed" || job.status === "in_progress") {
         for (const step of job.steps || []) {
-          core.info(`  Step: ${step.name} (status: ${step.status}, conclusion: ${step.conclusion})`);
-          // Capture failed steps, including those with continue-on-error
-          if (step.conclusion === "failure" || step.conclusion === "cancelled") {
+          // Check ALL possible failure indicators
+          const isFailed =
+            step.conclusion === "failure" ||
+            step.conclusion === "cancelled" ||
+            step.conclusion === "timed_out" ||
+            step.outcome === "failure" ||
+            step.outcome === "cancelled" ||
+            step.outcome === "timed_out" ||
+            step.status === "failure";
+
+          core.info(`  Step: ${step.name} | status=${step.status} | conclusion=${step.conclusion} | outcome=${step.outcome} | failed=${isFailed}`);
+
+          if (isFailed) {
             failedSteps.push({
               jobId: job.id,
               jobName: job.name,
@@ -30028,7 +30038,7 @@ async function getFailedSteps(token, runId) {
               stepNumber: step.number,
               startedAt: step.started_at,
               completedAt: step.completed_at,
-              continueOnError: job.conclusion === "success" && step.conclusion === "failure",
+              continueOnError: step.outcome === "failure" && step.conclusion !== "failure",
             });
           }
         }
@@ -30140,7 +30150,7 @@ async function collectLogs(token, runId) {
       run_id: runId,
     });
 
-    // Fetch logs for ALL completed jobs (including successful ones with continue-on-error failures)
+    // Fetch logs for ALL completed jobs and analyze them for errors
     for (const job of jobs.jobs) {
       // Skip the analyze job itself
       if (job.name.toLowerCase().includes('analyze') || job.name.toLowerCase().includes('logytics')) {
@@ -30148,14 +30158,27 @@ async function collectLogs(token, runId) {
         continue;
       }
 
-      core.info(`Checking job: ${job.name} (status: ${job.status}, conclusion: ${job.conclusion})`);
+      core.info(`Checking job: ${job.name} | status=${job.status} | conclusion=${job.conclusion}`);
 
       if (job.status === "completed") {
-        // Check if this job has any failed steps (including continue-on-error)
-        const hasFailedSteps = job.steps?.some(s => s.conclusion === "failure");
-        core.info(`  hasFailedSteps: ${hasFailedSteps}, steps: ${job.steps?.map(s => `${s.name}:${s.conclusion}`).join(', ')}`);
+        // Log all step details
+        for (const step of job.steps || []) {
+          core.info(`  Step: ${step.name} | conclusion=${step.conclusion} | outcome=${step.outcome}`);
+        }
 
-        if (job.conclusion === "failure" || hasFailedSteps) {
+        // Check ALL failure indicators
+        const hasFailedConclusion = job.conclusion === "failure" || job.conclusion === "cancelled" || job.conclusion === "timed_out";
+        const hasFailedSteps = job.steps?.some(s =>
+          s.conclusion === "failure" ||
+          s.conclusion === "cancelled" ||
+          s.outcome === "failure" ||
+          s.outcome === "cancelled"
+        );
+
+        core.info(`  Job failed: ${hasFailedConclusion} | Has failed steps: ${hasFailedSteps}`);
+
+        // Fetch logs if job failed OR any step failed (including continue-on-error)
+        if (hasFailedConclusion || hasFailedSteps) {
           core.info(`Fetching logs for job: ${job.name} (${job.id})...`);
           try {
             const jobLogs = await fetchJobLogs(token, job.id);
@@ -30164,12 +30187,31 @@ async function collectLogs(token, runId) {
               // Tag logs with job name for multi-error analysis
               logs.push(`\n=== JOB: ${job.name} ===\n${logStr}`);
               core.info(`Got ${logStr.length} bytes of logs from ${job.name}`);
+
+              // Also parse logs for error patterns
+              const errorPatterns = [
+                /error[:\s]/i,
+                /failed/i,
+                /exception/i,
+                /TypeError/i,
+                /SyntaxError/i,
+                /ReferenceError/i,
+                /FAIL\s/,
+                /exit code [1-9]/i,
+                /Module not found/i,
+                /Cannot resolve/i,
+              ];
+
+              const hasErrorInLogs = errorPatterns.some(p => p.test(logStr));
+              if (hasErrorInLogs) {
+                core.info(`  Error patterns detected in logs for ${job.name}`);
+              }
             }
           } catch (fetchErr) {
             core.info(`Job logs not available for ${job.name}: ${fetchErr.message}`);
           }
         } else {
-          core.info(`Skipping job ${job.name} - no failures detected`);
+          core.info(`Skipping job ${job.name} - no failures detected in metadata`);
         }
       }
     }
@@ -30595,30 +30637,71 @@ module.exports = { cleanLogs, extractErrorSection };
 /***/ ((module) => {
 
 const patterns = [
+  // Module/Import errors
   { pattern: /ModuleNotFoundError:.*['"](.+)['"]/i, signature: "missing_module" },
   { pattern: /Cannot find module ['"](.+)['"]/i, signature: "missing_module" },
+  { pattern: /Module not found.*Can't resolve ['"]?([^'"]+)['"]?/i, signature: "module_not_found" },
+  { pattern: /Module not found/i, signature: "module_not_found" },
+  { pattern: /Cannot resolve ['"]?([^'"]+)['"]?/i, signature: "module_not_found" },
   { pattern: /ImportError:.*['"](.+)['"]/i, signature: "import_error" },
-  { pattern: /Timeout.*exceeded/i, signature: "timeout_error" },
-  { pattern: /jest.*timeout/i, signature: "jest_timeout_error" },
-  { pattern: /Error: connect ECONNREFUSED/i, signature: "connection_refused" },
-  { pattern: /ENOENT.*no such file or directory/i, signature: "file_not_found" },
-  { pattern: /Environment variable ['"]?(\w+)['"]? is not set/i, signature: "env_var_missing" },
-  { pattern: /missing.*environment.*variable/i, signature: "env_var_missing" },
+
+  // Type/Runtime errors
+  { pattern: /TypeError:.*Cannot read.*['"]?(\w+)['"]?/i, signature: "type_error" },
   { pattern: /TypeError:/i, signature: "type_error" },
   { pattern: /ReferenceError:/i, signature: "reference_error" },
   { pattern: /SyntaxError:/i, signature: "syntax_error" },
+
+  // Lint errors
+  { pattern: /eslint.*error/i, signature: "lint_error" },
+  { pattern: /\d+:\d+\s+error\s+/i, signature: "lint_error" },
+  { pattern: /✖\s+\d+\s+problem/i, signature: "lint_error" },
+  { pattern: /no-unused-vars/i, signature: "lint_error" },
+
+  // Timeout errors
+  { pattern: /Timeout.*exceeded/i, signature: "timeout_error" },
+  { pattern: /jest.*timeout/i, signature: "jest_timeout_error" },
+  { pattern: /timed out/i, signature: "timeout_error" },
+
+  // Connection/Network errors
+  { pattern: /Error: connect ECONNREFUSED/i, signature: "connection_refused" },
+  { pattern: /ENOTFOUND/i, signature: "dns_error" },
+
+  // File system errors
+  { pattern: /ENOENT.*no such file or directory/i, signature: "file_not_found" },
+  { pattern: /EACCES/i, signature: "permission_denied" },
   { pattern: /ENOMEM/i, signature: "out_of_memory" },
   { pattern: /ENOSPC/i, signature: "disk_full" },
+
+  // Environment errors
+  { pattern: /Environment variable ['"]?(\w+)['"]? is not set/i, signature: "env_var_missing" },
+  { pattern: /missing.*environment.*variable/i, signature: "env_var_missing" },
+
+  // Package manager errors
   { pattern: /npm ERR! code E404/i, signature: "npm_package_not_found" },
   { pattern: /npm ERR! code ERESOLVE/i, signature: "npm_dependency_conflict" },
+  { pattern: /npm ERR!/i, signature: "npm_error" },
+  { pattern: /yarn error/i, signature: "yarn_error" },
+
+  // Docker errors
   { pattern: /docker.*not found/i, signature: "docker_not_available" },
+
+  // Auth errors
   { pattern: /permission denied/i, signature: "permission_denied" },
   { pattern: /authentication.*failed/i, signature: "auth_failed" },
+  { pattern: /unauthorized/i, signature: "auth_failed" },
   { pattern: /rate limit/i, signature: "rate_limited" },
+
+  // Test errors
   { pattern: /AssertionError/i, signature: "assertion_failed" },
+  { pattern: /FAIL\s+\S+/i, signature: "test_failure" },
   { pattern: /test.*failed/i, signature: "test_failure" },
+  { pattern: /Tests:.*failed/i, signature: "test_failure" },
+
+  // Build errors
   { pattern: /build.*failed/i, signature: "build_failure" },
   { pattern: /compilation.*error/i, signature: "compilation_error" },
+  { pattern: /error Command failed/i, signature: "command_failed" },
+  { pattern: /exit code [1-9]/i, signature: "exit_error" },
 ];
 
 function simpleHash(str) {

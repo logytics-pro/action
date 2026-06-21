@@ -1,28 +1,69 @@
 const patterns = [
+  // Module/Import errors
   { pattern: /ModuleNotFoundError:.*['"](.+)['"]/i, signature: "missing_module" },
   { pattern: /Cannot find module ['"](.+)['"]/i, signature: "missing_module" },
+  { pattern: /Module not found.*Can't resolve ['"]?([^'"]+)['"]?/i, signature: "module_not_found" },
+  { pattern: /Module not found/i, signature: "module_not_found" },
+  { pattern: /Cannot resolve ['"]?([^'"]+)['"]?/i, signature: "module_not_found" },
   { pattern: /ImportError:.*['"](.+)['"]/i, signature: "import_error" },
-  { pattern: /Timeout.*exceeded/i, signature: "timeout_error" },
-  { pattern: /jest.*timeout/i, signature: "jest_timeout_error" },
-  { pattern: /Error: connect ECONNREFUSED/i, signature: "connection_refused" },
-  { pattern: /ENOENT.*no such file or directory/i, signature: "file_not_found" },
-  { pattern: /Environment variable ['"]?(\w+)['"]? is not set/i, signature: "env_var_missing" },
-  { pattern: /missing.*environment.*variable/i, signature: "env_var_missing" },
+
+  // Type/Runtime errors
+  { pattern: /TypeError:.*Cannot read.*['"]?(\w+)['"]?/i, signature: "type_error" },
   { pattern: /TypeError:/i, signature: "type_error" },
   { pattern: /ReferenceError:/i, signature: "reference_error" },
   { pattern: /SyntaxError:/i, signature: "syntax_error" },
+
+  // Lint errors
+  { pattern: /eslint.*error/i, signature: "lint_error" },
+  { pattern: /\d+:\d+\s+error\s+/i, signature: "lint_error" },
+  { pattern: /✖\s+\d+\s+problem/i, signature: "lint_error" },
+  { pattern: /no-unused-vars/i, signature: "lint_error" },
+
+  // Timeout errors
+  { pattern: /Timeout.*exceeded/i, signature: "timeout_error" },
+  { pattern: /jest.*timeout/i, signature: "jest_timeout_error" },
+  { pattern: /timed out/i, signature: "timeout_error" },
+
+  // Connection/Network errors
+  { pattern: /Error: connect ECONNREFUSED/i, signature: "connection_refused" },
+  { pattern: /ENOTFOUND/i, signature: "dns_error" },
+
+  // File system errors
+  { pattern: /ENOENT.*no such file or directory/i, signature: "file_not_found" },
+  { pattern: /EACCES/i, signature: "permission_denied" },
   { pattern: /ENOMEM/i, signature: "out_of_memory" },
   { pattern: /ENOSPC/i, signature: "disk_full" },
+
+  // Environment errors
+  { pattern: /Environment variable ['"]?(\w+)['"]? is not set/i, signature: "env_var_missing" },
+  { pattern: /missing.*environment.*variable/i, signature: "env_var_missing" },
+
+  // Package manager errors
   { pattern: /npm ERR! code E404/i, signature: "npm_package_not_found" },
   { pattern: /npm ERR! code ERESOLVE/i, signature: "npm_dependency_conflict" },
+  { pattern: /npm ERR!/i, signature: "npm_error" },
+  { pattern: /yarn error/i, signature: "yarn_error" },
+
+  // Docker errors
   { pattern: /docker.*not found/i, signature: "docker_not_available" },
+
+  // Auth errors
   { pattern: /permission denied/i, signature: "permission_denied" },
   { pattern: /authentication.*failed/i, signature: "auth_failed" },
+  { pattern: /unauthorized/i, signature: "auth_failed" },
   { pattern: /rate limit/i, signature: "rate_limited" },
+
+  // Test errors
   { pattern: /AssertionError/i, signature: "assertion_failed" },
+  { pattern: /FAIL\s+\S+/i, signature: "test_failure" },
   { pattern: /test.*failed/i, signature: "test_failure" },
+  { pattern: /Tests:.*failed/i, signature: "test_failure" },
+
+  // Build errors
   { pattern: /build.*failed/i, signature: "build_failure" },
   { pattern: /compilation.*error/i, signature: "compilation_error" },
+  { pattern: /error Command failed/i, signature: "command_failed" },
+  { pattern: /exit code [1-9]/i, signature: "exit_error" },
 ];
 
 function simpleHash(str) {
