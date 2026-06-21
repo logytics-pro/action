@@ -54,12 +54,19 @@ async function run() {
     core.info("Logytics: Sending to API...");
     const result = await sendToApi(apiUrl, apiKey, payload, openaiKey);
 
+    // Map API response (failures array) to formatter format (errors array)
+    if (result.failures && result.failures.length > 0) {
+      result.errors = result.failures;
+      core.info(`Logytics: Found ${result.failures.length} error(s)`);
+    }
+
     core.setOutput("failure-id", result.id);
     core.setOutput("signature", result.signature);
     core.setOutput("is-recurring", result.isRecurring);
     core.setOutput("root-cause", result.rootCause || "");
     core.setOutput("suggested-fix", result.suggestedFix || "");
     core.setOutput("failed-steps", JSON.stringify(failedSteps));
+    core.setOutput("error-count", result.failures?.length || 1);
 
     // Create fix PR if requested and code fix is available
     let fixPrUrl = null;

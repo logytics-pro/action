@@ -145,19 +145,25 @@ async function collectLogs(token, runId) {
       run_id: runId,
     });
 
+    // Fetch logs for ALL completed jobs (including successful ones with continue-on-error failures)
     for (const job of jobs.jobs) {
-      if (job.status === "in_progress" || job.status === "completed") {
-        core.info(`Fetching logs for job: ${job.name} (${job.id})...`);
-        try {
-          const jobLogs = await fetchJobLogs(token, job.id);
-          if (jobLogs) {
-            const logStr = typeof jobLogs === 'string' ? jobLogs : JSON.stringify(jobLogs);
-            logs.push(logStr);
-            core.info(`Got ${logStr.length} bytes of logs`);
-            core.info(`Log preview: ${logStr.substring(0, 500)}`);
+      if (job.status === "completed") {
+        // Check if this job has any failed steps (including continue-on-error)
+        const hasFailedSteps = job.steps?.some(s => s.conclusion === "failure");
+
+        if (job.conclusion === "failure" || hasFailedSteps) {
+          core.info(`Fetching logs for job: ${job.name} (${job.id}, conclusion: ${job.conclusion}, hasFailedSteps: ${hasFailedSteps})...`);
+          try {
+            const jobLogs = await fetchJobLogs(token, job.id);
+            if (jobLogs) {
+              const logStr = typeof jobLogs === 'string' ? jobLogs : JSON.stringify(jobLogs);
+              // Tag logs with job name for multi-error analysis
+              logs.push(`\n=== JOB: ${job.name} ===\n${logStr}`);
+              core.info(`Got ${logStr.length} bytes of logs from ${job.name}`);
+            }
+          } catch (fetchErr) {
+            core.info(`Job logs not available for ${job.name}`);
           }
-        } catch (fetchErr) {
-          core.info(`Job logs not available (expected for in-progress jobs)`);
         }
       }
     }

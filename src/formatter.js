@@ -1,3 +1,58 @@
+function formatFix(fix) {
+  if (!fix) return "";
+  // Convert numbered lists that might be inline
+  fix = fix.replace(/(\d+)\.\s+/g, '\n$1. ');
+  // Convert bullet points that might be inline
+  fix = fix.replace(/\s+-\s+/g, '\n- ');
+  // Clean up any double newlines
+  fix = fix.replace(/\n\n+/g, '\n\n');
+  return fix.trim();
+}
+
+function formatSingleError(error, index) {
+  const parts = [];
+  const num = index + 1;
+
+  parts.push(`### ${num}. ${error.jobName || 'Error'}\n`);
+
+  if (error.keyError) {
+    parts.push("**Error:**");
+    parts.push("```");
+    parts.push(error.keyError);
+    parts.push("```");
+    parts.push("");
+  }
+
+  if (error.rootCause) {
+    parts.push(`**Root Cause:** ${error.rootCause}\n`);
+  }
+
+  if (error.explanation) {
+    parts.push(`**Explanation:** ${error.explanation}\n`);
+  }
+
+  if (error.suggestedFix) {
+    parts.push("**Suggested Fix:**");
+    parts.push(formatFix(error.suggestedFix));
+    parts.push("");
+  }
+
+  if (error.codeExample) {
+    parts.push("**Example Fix:**");
+    parts.push("```" + (error.codeLanguage || ""));
+    parts.push(error.codeExample);
+    parts.push("```");
+    parts.push("");
+  }
+
+  if (error.confidence) {
+    const emoji = error.confidence >= 80 ? "🟢" : error.confidence >= 50 ? "🟡" : "🔴";
+    parts.push(`**Confidence:** ${emoji} ${error.confidence}%\n`);
+  }
+
+  return parts.join("\n");
+}
+
 function formatSummary(result, failedSteps = [], context = {}) {
   const parts = [];
 
@@ -22,65 +77,65 @@ function formatSummary(result, failedSteps = [], context = {}) {
   if (failedSteps.length > 0) {
     parts.push("### Failed Steps\n");
     failedSteps.forEach(step => {
-      parts.push(`- ❌ **${step.jobName}** → ${step.stepName}`);
+      const continueTag = step.continueOnError ? " *(continue-on-error)*" : "";
+      parts.push(`- ❌ **${step.jobName}** → ${step.stepName}${continueTag}`);
     });
     parts.push("");
   }
 
-  // Root Cause
-  if (result.rootCause) {
-    parts.push("### Root Cause\n");
-    parts.push(result.rootCause);
-    parts.push("");
-  }
+  // Handle multiple errors
+  if (result.errors && result.errors.length > 0) {
+    parts.push(`## Found ${result.errors.length} Error(s)\n`);
 
-  // Key Error
-  if (result.keyError) {
-    parts.push("### Key Error\n");
-    parts.push("```");
-    parts.push(result.keyError);
-    parts.push("```");
-    parts.push("");
-  }
+    if (result.summary) {
+      parts.push(`> ${result.summary}\n`);
+    }
 
-  // Explanation
-  if (result.explanation) {
-    parts.push("### Explanation\n");
-    parts.push(result.explanation);
-    parts.push("");
-  }
+    result.errors.forEach((error, index) => {
+      parts.push(formatSingleError(error, index));
+      parts.push("---\n");
+    });
+  } else {
+    // Single error format (backward compatibility)
+    if (result.rootCause) {
+      parts.push("### Root Cause\n");
+      parts.push(result.rootCause);
+      parts.push("");
+    }
 
-  // Suggested Fix
-  if (result.suggestedFix) {
-    parts.push("### Suggested Fix\n");
-    // Format bullet points properly - convert "1. " or "- " inline to newlines
-    let fix = result.suggestedFix;
-    // Convert numbered lists that might be inline
-    fix = fix.replace(/(\d+)\.\s+/g, '\n$1. ');
-    // Convert bullet points that might be inline
-    fix = fix.replace(/\s+-\s+/g, '\n- ');
-    // Clean up any double newlines
-    fix = fix.replace(/\n\n+/g, '\n\n');
-    // Trim leading newline if added
-    fix = fix.trim();
-    parts.push(fix);
-    parts.push("");
-  }
+    if (result.keyError) {
+      parts.push("### Key Error\n");
+      parts.push("```");
+      parts.push(result.keyError);
+      parts.push("```");
+      parts.push("");
+    }
 
-  // Code Example
-  if (result.codeExample) {
-    parts.push("### Example Fix\n");
-    parts.push("```" + (result.codeLanguage || ""));
-    parts.push(result.codeExample);
-    parts.push("```");
-    parts.push("");
-  }
+    if (result.explanation) {
+      parts.push("### Explanation\n");
+      parts.push(result.explanation);
+      parts.push("");
+    }
 
-  // Confidence
-  if (result.confidence) {
-    const emoji = result.confidence >= 80 ? "🟢" : result.confidence >= 50 ? "🟡" : "🔴";
-    parts.push("### Confidence\n");
-    parts.push(`${emoji} **${result.confidence}%**\n`);
+    if (result.suggestedFix) {
+      parts.push("### Suggested Fix\n");
+      parts.push(formatFix(result.suggestedFix));
+      parts.push("");
+    }
+
+    if (result.codeExample) {
+      parts.push("### Example Fix\n");
+      parts.push("```" + (result.codeLanguage || ""));
+      parts.push(result.codeExample);
+      parts.push("```");
+      parts.push("");
+    }
+
+    if (result.confidence) {
+      const emoji = result.confidence >= 80 ? "🟢" : result.confidence >= 50 ? "🟡" : "🔴";
+      parts.push("### Confidence\n");
+      parts.push(`${emoji} **${result.confidence}%**\n`);
+    }
   }
 
   // Fix PR
@@ -92,7 +147,6 @@ function formatSummary(result, failedSteps = [], context = {}) {
   // Footer
   parts.push("---");
   parts.push("*Powered by [Logytics](https://logytics.dev)*");
-  parts.push("*Job summary generated at run-time*");
 
   return parts.join("\n");
 }

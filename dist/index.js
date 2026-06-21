@@ -30140,19 +30140,25 @@ async function collectLogs(token, runId) {
       run_id: runId,
     });
 
+    // Fetch logs for ALL completed jobs (including successful ones with continue-on-error failures)
     for (const job of jobs.jobs) {
-      if (job.status === "in_progress" || job.status === "completed") {
-        core.info(`Fetching logs for job: ${job.name} (${job.id})...`);
-        try {
-          const jobLogs = await fetchJobLogs(token, job.id);
-          if (jobLogs) {
-            const logStr = typeof jobLogs === 'string' ? jobLogs : JSON.stringify(jobLogs);
-            logs.push(logStr);
-            core.info(`Got ${logStr.length} bytes of logs`);
-            core.info(`Log preview: ${logStr.substring(0, 500)}`);
+      if (job.status === "completed") {
+        // Check if this job has any failed steps (including continue-on-error)
+        const hasFailedSteps = job.steps?.some(s => s.conclusion === "failure");
+
+        if (job.conclusion === "failure" || hasFailedSteps) {
+          core.info(`Fetching logs for job: ${job.name} (${job.id}, conclusion: ${job.conclusion}, hasFailedSteps: ${hasFailedSteps})...`);
+          try {
+            const jobLogs = await fetchJobLogs(token, job.id);
+            if (jobLogs) {
+              const logStr = typeof jobLogs === 'string' ? jobLogs : JSON.stringify(jobLogs);
+              // Tag logs with job name for multi-error analysis
+              logs.push(`\n=== JOB: ${job.name} ===\n${logStr}`);
+              core.info(`Got ${logStr.length} bytes of logs from ${job.name}`);
+            }
+          } catch (fetchErr) {
+            core.info(`Job logs not available for ${job.name}`);
           }
-        } catch (fetchErr) {
-          core.info(`Job logs not available (expected for in-progress jobs)`);
         }
       }
     }
@@ -30337,6 +30343,61 @@ module.exports = { createFixPR };
 /***/ 1320:
 /***/ ((module) => {
 
+function formatFix(fix) {
+  if (!fix) return "";
+  // Convert numbered lists that might be inline
+  fix = fix.replace(/(\d+)\.\s+/g, '\n$1. ');
+  // Convert bullet points that might be inline
+  fix = fix.replace(/\s+-\s+/g, '\n- ');
+  // Clean up any double newlines
+  fix = fix.replace(/\n\n+/g, '\n\n');
+  return fix.trim();
+}
+
+function formatSingleError(error, index) {
+  const parts = [];
+  const num = index + 1;
+
+  parts.push(`### ${num}. ${error.jobName || 'Error'}\n`);
+
+  if (error.keyError) {
+    parts.push("**Error:**");
+    parts.push("```");
+    parts.push(error.keyError);
+    parts.push("```");
+    parts.push("");
+  }
+
+  if (error.rootCause) {
+    parts.push(`**Root Cause:** ${error.rootCause}\n`);
+  }
+
+  if (error.explanation) {
+    parts.push(`**Explanation:** ${error.explanation}\n`);
+  }
+
+  if (error.suggestedFix) {
+    parts.push("**Suggested Fix:**");
+    parts.push(formatFix(error.suggestedFix));
+    parts.push("");
+  }
+
+  if (error.codeExample) {
+    parts.push("**Example Fix:**");
+    parts.push("```" + (error.codeLanguage || ""));
+    parts.push(error.codeExample);
+    parts.push("```");
+    parts.push("");
+  }
+
+  if (error.confidence) {
+    const emoji = error.confidence >= 80 ? "🟢" : error.confidence >= 50 ? "🟡" : "🔴";
+    parts.push(`**Confidence:** ${emoji} ${error.confidence}%\n`);
+  }
+
+  return parts.join("\n");
+}
+
 function formatSummary(result, failedSteps = [], context = {}) {
   const parts = [];
 
@@ -30361,65 +30422,65 @@ function formatSummary(result, failedSteps = [], context = {}) {
   if (failedSteps.length > 0) {
     parts.push("### Failed Steps\n");
     failedSteps.forEach(step => {
-      parts.push(`- ❌ **${step.jobName}** → ${step.stepName}`);
+      const continueTag = step.continueOnError ? " *(continue-on-error)*" : "";
+      parts.push(`- ❌ **${step.jobName}** → ${step.stepName}${continueTag}`);
     });
     parts.push("");
   }
 
-  // Root Cause
-  if (result.rootCause) {
-    parts.push("### Root Cause\n");
-    parts.push(result.rootCause);
-    parts.push("");
-  }
+  // Handle multiple errors
+  if (result.errors && result.errors.length > 0) {
+    parts.push(`## Found ${result.errors.length} Error(s)\n`);
 
-  // Key Error
-  if (result.keyError) {
-    parts.push("### Key Error\n");
-    parts.push("```");
-    parts.push(result.keyError);
-    parts.push("```");
-    parts.push("");
-  }
+    if (result.summary) {
+      parts.push(`> ${result.summary}\n`);
+    }
 
-  // Explanation
-  if (result.explanation) {
-    parts.push("### Explanation\n");
-    parts.push(result.explanation);
-    parts.push("");
-  }
+    result.errors.forEach((error, index) => {
+      parts.push(formatSingleError(error, index));
+      parts.push("---\n");
+    });
+  } else {
+    // Single error format (backward compatibility)
+    if (result.rootCause) {
+      parts.push("### Root Cause\n");
+      parts.push(result.rootCause);
+      parts.push("");
+    }
 
-  // Suggested Fix
-  if (result.suggestedFix) {
-    parts.push("### Suggested Fix\n");
-    // Format bullet points properly - convert "1. " or "- " inline to newlines
-    let fix = result.suggestedFix;
-    // Convert numbered lists that might be inline
-    fix = fix.replace(/(\d+)\.\s+/g, '\n$1. ');
-    // Convert bullet points that might be inline
-    fix = fix.replace(/\s+-\s+/g, '\n- ');
-    // Clean up any double newlines
-    fix = fix.replace(/\n\n+/g, '\n\n');
-    // Trim leading newline if added
-    fix = fix.trim();
-    parts.push(fix);
-    parts.push("");
-  }
+    if (result.keyError) {
+      parts.push("### Key Error\n");
+      parts.push("```");
+      parts.push(result.keyError);
+      parts.push("```");
+      parts.push("");
+    }
 
-  // Code Example
-  if (result.codeExample) {
-    parts.push("### Example Fix\n");
-    parts.push("```" + (result.codeLanguage || ""));
-    parts.push(result.codeExample);
-    parts.push("```");
-    parts.push("");
-  }
+    if (result.explanation) {
+      parts.push("### Explanation\n");
+      parts.push(result.explanation);
+      parts.push("");
+    }
 
-  // Confidence
-  if (result.confidence) {
-    const emoji = result.confidence >= 80 ? "🟢" : result.confidence >= 50 ? "🟡" : "🔴";
-    parts.push("### Confidence\n");
-    parts.push(`${emoji} **${result.confidence}%**\n`);
+    if (result.suggestedFix) {
+      parts.push("### Suggested Fix\n");
+      parts.push(formatFix(result.suggestedFix));
+      parts.push("");
+    }
+
+    if (result.codeExample) {
+      parts.push("### Example Fix\n");
+      parts.push("```" + (result.codeLanguage || ""));
+      parts.push(result.codeExample);
+      parts.push("```");
+      parts.push("");
+    }
+
+    if (result.confidence) {
+      const emoji = result.confidence >= 80 ? "🟢" : result.confidence >= 50 ? "🟡" : "🔴";
+      parts.push("### Confidence\n");
+      parts.push(`${emoji} **${result.confidence}%**\n`);
+    }
   }
 
   // Fix PR
@@ -30431,7 +30492,6 @@ function formatSummary(result, failedSteps = [], context = {}) {
   // Footer
   parts.push("---");
   parts.push("*Powered by [Logytics](https://logytics.dev)*");
-  parts.push("*Job summary generated at run-time*");
 
   return parts.join("\n");
 }
@@ -32554,12 +32614,19 @@ async function run() {
     core.info("Logytics: Sending to API...");
     const result = await sendToApi(apiUrl, apiKey, payload, openaiKey);
 
+    // Map API response (failures array) to formatter format (errors array)
+    if (result.failures && result.failures.length > 0) {
+      result.errors = result.failures;
+      core.info(`Logytics: Found ${result.failures.length} error(s)`);
+    }
+
     core.setOutput("failure-id", result.id);
     core.setOutput("signature", result.signature);
     core.setOutput("is-recurring", result.isRecurring);
     core.setOutput("root-cause", result.rootCause || "");
     core.setOutput("suggested-fix", result.suggestedFix || "");
     core.setOutput("failed-steps", JSON.stringify(failedSteps));
+    core.setOutput("error-count", result.failures?.length || 1);
 
     // Create fix PR if requested and code fix is available
     let fixPrUrl = null;
