@@ -147,12 +147,21 @@ async function collectLogs(token, runId) {
 
     // Fetch logs for ALL completed jobs (including successful ones with continue-on-error failures)
     for (const job of jobs.jobs) {
+      // Skip the analyze job itself
+      if (job.name.toLowerCase().includes('analyze') || job.name.toLowerCase().includes('logytics')) {
+        core.info(`Skipping analysis job: ${job.name}`);
+        continue;
+      }
+
+      core.info(`Checking job: ${job.name} (status: ${job.status}, conclusion: ${job.conclusion})`);
+
       if (job.status === "completed") {
         // Check if this job has any failed steps (including continue-on-error)
         const hasFailedSteps = job.steps?.some(s => s.conclusion === "failure");
+        core.info(`  hasFailedSteps: ${hasFailedSteps}, steps: ${job.steps?.map(s => `${s.name}:${s.conclusion}`).join(', ')}`);
 
         if (job.conclusion === "failure" || hasFailedSteps) {
-          core.info(`Fetching logs for job: ${job.name} (${job.id}, conclusion: ${job.conclusion}, hasFailedSteps: ${hasFailedSteps})...`);
+          core.info(`Fetching logs for job: ${job.name} (${job.id})...`);
           try {
             const jobLogs = await fetchJobLogs(token, job.id);
             if (jobLogs) {
@@ -162,8 +171,10 @@ async function collectLogs(token, runId) {
               core.info(`Got ${logStr.length} bytes of logs from ${job.name}`);
             }
           } catch (fetchErr) {
-            core.info(`Job logs not available for ${job.name}`);
+            core.info(`Job logs not available for ${job.name}: ${fetchErr.message}`);
           }
+        } else {
+          core.info(`Skipping job ${job.name} - no failures detected`);
         }
       }
     }
