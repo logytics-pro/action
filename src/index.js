@@ -10,7 +10,7 @@ const { createFixPR } = require("./fixGenerator");
 async function run() {
   try {
     const apiKey = core.getInput("sensethelog-api-key", { required: true });
-    const apiUrl = core.getInput("api-url") || "https://website-production-28cf.up.railway.app";
+    const apiUrl = core.getInput("api-url") || "https://api.sensethelog.com";
     const openaiKey = core.getInput("openai-api-key");
     const githubToken = core.getInput("github-token") || process.env.GITHUB_TOKEN;
     const makeFix = core.getInput("make-fix") === "true";

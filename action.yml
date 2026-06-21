@@ -14,9 +14,9 @@ inputs:
     required: false
     default: ${{ github.token }}
   api-url:
-    description: 'SenseTheLog API URL (optional)'
+    description: 'SenseTheLog API URL (optional, for self-hosted)'
     required: false
-    default: 'https://website-production-28cf.up.railway.app'
+    default: 'https://api.sensethelog.com'
   openai-api-key:
     description: 'OpenAI API key for free mode analysis (optional)'
     required: false
