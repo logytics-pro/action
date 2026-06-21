@@ -206,22 +206,27 @@ async function collectLogs(token, runId) {
               // If job succeeded but has errors, mark as continue-on-error
               if (job.conclusion === "success" && hasErrorInLogs) {
                 core.info(`  Continue-on-error detected in ${job.name}`);
-                // Find which step has continue-on-error by checking for failed outcome or exit code in logs
-                let stepName = "Unknown step";
+                // Find which step likely had the error - skip common steps like Checkout
+                let stepName = null;
+                const skipSteps = ['checkout', 'setup', 'install', 'cache'];
+
                 for (const step of job.steps || []) {
-                  // Check if this step's name appears in logs near an error
-                  if (step.conclusion === "success" && logStr.includes(step.name)) {
-                    // Check if there's an error pattern near this step
-                    const stepIndex = logStr.indexOf(step.name);
-                    const nearbyLogs = logStr.substring(stepIndex, stepIndex + 500);
-                    if (errorPatterns.some(p => p.test(nearbyLogs))) {
-                      stepName = step.name;
-                      break;
-                    }
-                  }
+                  const stepLower = step.name.toLowerCase();
+                  // Skip common setup steps
+                  if (skipSteps.some(s => stepLower.includes(s))) continue;
+                  // Skip steps that clearly succeeded without issues
+                  if (step.name.toLowerCase().includes('this step runs')) continue;
+
+                  // This is likely the step with continue-on-error
+                  stepName = step.name;
+                  core.info(`  Identified failed step: ${stepName}`);
+                  break;
                 }
+
+                if (!stepName) stepName = "Error detected in logs";
+
                 // Add to failed steps if not already there
-                const alreadyTracked = failedSteps.some(s => s.jobName === job.name && s.stepName === stepName);
+                const alreadyTracked = failedSteps.some(s => s.jobName === job.name);
                 if (!alreadyTracked) {
                   failedSteps.push({
                     jobId: job.id,
