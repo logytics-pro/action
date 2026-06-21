@@ -30166,6 +30166,9 @@ async function collectLogs(token, runId) {
       /no-unused-vars/i,
     ];
 
+    core.info(`Total jobs in workflow: ${jobs.jobs.length}`);
+    jobs.jobs.forEach(j => core.info(`  - ${j.name}: status=${j.status}, conclusion=${j.conclusion}`));
+
     // Fetch logs for ALL completed jobs (not just failed ones)
     // This catches continue-on-error jobs that show as "success" but have errors
     for (const job of jobs.jobs) {
@@ -30175,7 +30178,7 @@ async function collectLogs(token, runId) {
         continue;
       }
 
-      core.info(`Checking job: ${job.name} | status=${job.status} | conclusion=${job.conclusion}`);
+      core.info(`\n>>> Processing job: ${job.name} | status=${job.status} | conclusion=${job.conclusion}`);
 
       if (job.status === "completed") {
         // Log all step details
@@ -30183,15 +30186,22 @@ async function collectLogs(token, runId) {
           core.info(`  Step: ${step.name} | conclusion=${step.conclusion} | outcome=${step.outcome}`);
         }
 
-        // Fetch logs for ALL jobs to catch continue-on-error errors
+        // Fetch logs for ALL completed jobs
         core.info(`Fetching logs for job: ${job.name} (${job.id})...`);
         try {
           const jobLogs = await fetchJobLogs(token, job.id);
+          core.info(`  Logs received: ${jobLogs ? jobLogs.length + ' bytes' : 'NULL'}`);
+
           if (jobLogs) {
             const logStr = typeof jobLogs === 'string' ? jobLogs : JSON.stringify(jobLogs);
 
             // Check if logs contain error patterns
-            const hasErrorInLogs = errorPatterns.some(p => p.test(logStr));
+            const matchedPatterns = errorPatterns.filter(p => p.test(logStr));
+            const hasErrorInLogs = matchedPatterns.length > 0;
+            core.info(`  Error patterns matched: ${matchedPatterns.length} (hasErrors: ${hasErrorInLogs})`);
+            if (hasErrorInLogs) {
+              core.info(`  Matched: ${matchedPatterns.map(p => p.toString()).join(', ')}`);
+            }
 
             if (job.conclusion === "failure" || hasErrorInLogs) {
               // Tag logs with job name for multi-error analysis
