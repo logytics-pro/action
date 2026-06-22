@@ -1,0 +1,49 @@
+name: 'SenseTheLog CI Intelligence'
+description: 'Analyze CI failures and get AI-powered insights'
+author: 'SenseTheLog'
+branding:
+  icon: 'zap'
+  color: 'purple'
+
+inputs:
+  sensethelog-api-key:
+    description: 'Your SenseTheLog API key'
+    required: true
+  github-token:
+    description: 'GitHub token to fetch failed step details (defaults to GITHUB_TOKEN)'
+    required: false
+    default: ${{ github.token }}
+  api-url:
+    description: 'SenseTheLog API URL (optional, for self-hosted)'
+    required: false
+    default: 'https://api.sensethelog.com'
+  openai-api-key:
+    description: 'OpenAI API key for free mode analysis (optional)'
+    required: false
+  make-fix:
+    description: 'Create a PR with the suggested fix (requires write permissions)'
+    required: false
+    default: 'false'
+  workflow-run-id:
+    description: 'Workflow run ID to analyze (for workflow_run trigger)'
+    required: false
+
+outputs:
+  failure-id:
+    description: 'The ID of the recorded failure'
+  signature:
+    description: 'The failure signature'
+  is-recurring:
+    description: 'Whether this is a recurring failure'
+  root-cause:
+    description: 'AI-generated root cause analysis'
+  suggested-fix:
+    description: 'AI-suggested fix for the failure'
+  failed-steps:
+    description: 'JSON array of failed steps with job and step names'
+  fix-pr-url:
+    description: 'URL of the fix PR (if make-fix was true)'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

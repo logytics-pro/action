@@ -1,0 +1,245 @@
+name: Test SenseTheLog Action
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/test.yml'
+
+permissions:
+  actions: read
+  contents: read
+  checks: read
+
+jobs:
+  test-typescript-error:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run failing test (TypeError)
+        run: |
+          echo "> jest --coverage"
+          echo ""
+          echo "FAIL src/utils.test.js"
+          echo "  ● validateInput › should reject invalid email"
+          echo ""
+          echo "    TypeError: Cannot read properties of undefined (reading 'email')"
+          echo ""
+          echo "      40 |   const validateInput = (data) => {"
+          echo "      41 |     if (!data) throw new Error('Data required');"
+          echo "    > 42 |     return data.email.includes('@');"
+          echo "         |                ^"
+          echo "      43 |   };"
+          echo ""
+          echo "      at validateInput (src/utils.js:42:16)"
+          echo "      at Object.<anonymous> (src/utils.test.js:15:5)"
+          echo ""
+          echo "Test Suites: 1 failed, 1 total"
+          echo "Tests:       1 failed, 2 passed, 3 total"
+          exit 1
+
+  test-module-error:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run failing build (Module not found)
+        run: |
+          echo "> npm run build"
+          echo ""
+          echo "Building project..."
+          echo ""
+          echo "ERROR in ./src/components/Dashboard.tsx"
+          echo "Module not found: Error: Can't resolve '@/utils/helpers'"
+          echo "  at /home/runner/work/app/src/components/Dashboard.tsx:3:1"
+          echo ""
+          echo "Import trace for requested module:"
+          echo "  ./src/components/Dashboard.tsx"
+          echo "  ./src/pages/index.tsx"
+          echo ""
+          echo "error Command failed with exit code 1."
+          exit 1
+
+  test-continue-on-error:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Lint with errors (continue-on-error)
+        continue-on-error: true
+        run: |
+          echo "> eslint src/"
+          echo ""
+          echo "/src/api/handler.js"
+          echo "  12:5  error  'response' is defined but never used  no-unused-vars"
+          echo "  25:10 error  Unexpected console statement          no-console"
+          echo "  38:1  error  Missing return statement              consistent-return"
+          echo ""
+          echo "✖ 3 problems (3 errors, 0 warnings)"
+          exit 1
+
+      - name: This step runs despite error above
+        run: echo "Continuing after lint error..."
+
+  test-timeout-error:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run slow test (Timeout)
+        run: |
+          echo "> jest --testTimeout=5000"
+          echo ""
+          echo "FAIL src/integration/api.test.js"
+          echo "  ● API Integration › should fetch user data"
+          echo ""
+          echo "    Timeout - Async callback was not invoked within the 5000 ms timeout specified by jest.setTimeout."
+          echo ""
+          echo "      18 |   it('should fetch user data', async () => {"
+          echo "    > 19 |     const response = await api.getUser(123);"
+          echo "         |                      ^"
+          echo "      20 |     expect(response.status).toBe(200);"
+          echo ""
+          echo "      at Timeout._onTimeout (node_modules/jest-jasmine2/build/queueRunner.js:68:21)"
+          echo ""
+          echo "Test Suites: 1 failed, 1 total"
+          exit 1
+
+  test-dependency-error:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies (npm error)
+        run: |
+          echo "> npm install"
+          echo ""
+          echo "npm ERR! code ERESOLVE"
+          echo "npm ERR! ERESOLVE unable to resolve dependency tree"
+          echo ""
+          echo "npm ERR! Found: react@18.2.0"
+          echo "npm ERR! node_modules/react"
+          echo "npm ERR!   react@\"^18.2.0\" from the root project"
+          echo ""
+          echo "npm ERR! Could not resolve dependency:"
+          echo "npm ERR! peer react@\"^17.0.0\" from react-beautiful-dnd@13.1.1"
+          echo "npm ERR! node_modules/react-beautiful-dnd"
+          echo ""
+          echo "npm ERR! Fix the upstream dependency conflict, or retry"
+          echo "npm ERR! with --force or --legacy-peer-deps"
+          exit 1
+
+  test-connection-error:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run database migration
+        run: |
+          echo "> npx prisma migrate deploy"
+          echo ""
+          echo "Prisma Migrate could not create the shadow database."
+          echo ""
+          echo "Error: P1001: Can't reach database server at 'localhost:5432'"
+          echo ""
+          echo "Error: connect ECONNREFUSED 127.0.0.1:5432"
+          echo "  at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1141:16)"
+          echo ""
+          echo "Please make sure your database server is running at localhost:5432."
+          exit 1
+
+  test-env-var-error:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run app startup
+        run: |
+          echo "> node server.js"
+          echo ""
+          echo "Error: Environment variable 'DATABASE_URL' is not set"
+          echo "  at validateEnv (/app/src/config.js:15:11)"
+          echo "  at Object.<anonymous> (/app/src/index.js:3:1)"
+          echo ""
+          echo "Required environment variables:"
+          echo "  - DATABASE_URL"
+          echo "  - JWT_SECRET"
+          echo "  - REDIS_URL"
+          exit 1
+
+  test-terraform-error:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Terraform Plan
+        run: |
+          echo "> terraform plan"
+          echo ""
+          echo "Refreshing Terraform state in-memory prior to plan..."
+          echo ""
+          echo "Error: Reference to undeclared resource"
+          echo ""
+          echo "  on main.tf line 42, in resource \"aws_security_group_rule\" \"allow_http\":"
+          echo "  42:   security_group_id = aws_security_group.web.id"
+          echo ""
+          echo "A managed resource \"aws_security_group\" \"web\" has not been declared in the"
+          echo "root module."
+          echo ""
+          echo "Did you mean the resource aws_security_group.app?"
+          echo ""
+          echo "Error: Invalid reference"
+          echo ""
+          echo "  on variables.tf line 18:"
+          echo "  18:   default = var.undefined_variable"
+          echo ""
+          echo "A reference to a variable cannot be used in the default value of that variable."
+          exit 1
+
+  test-cloudformation-error:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy CloudFormation Stack
+        run: |
+          echo "> aws cloudformation deploy --template-file template.yaml --stack-name prod-api"
+          echo ""
+          echo "Waiting for changeset to be created..."
+          echo ""
+          echo "Failed to create/update the stack. Run the following command"
+          echo "to fetch the list of events leading up to the failure"
+          echo ""
+          echo "aws cloudformation describe-stack-events --stack-name prod-api"
+          echo ""
+          echo "Resource creation failed:"
+          echo "  LogicalResourceId: ApiGatewayRestApi"
+          echo "  ResourceType: AWS::ApiGateway::RestApi"
+          echo "  ResourceStatusReason: Property validation failure: [Value of property /Body/paths/~1users/get must be an object]"
+          echo ""
+          echo "Stack [prod-api] rollback triggered due to CREATE_FAILED on resource [ApiGatewayRestApi]"
+          echo ""
+          echo "ROLLBACK_COMPLETE"
+          exit 1
+
+  analyze:
+    runs-on: ubuntu-latest
+    needs: [test-typescript-error, test-module-error, test-continue-on-error, test-timeout-error, test-dependency-error, test-connection-error, test-env-var-error, test-terraform-error, test-cloudformation-error]
+    if: always()
+    steps:
+      - name: SenseTheLog Analysis
+        uses: sensethelog/action@v1
+        with:
+          sensethelog-api-key: ${{ secrets.SENSETHELOG_API_KEY }}
+          workflow-run-id: ${{ github.run_id }}
