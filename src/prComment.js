@@ -3,44 +3,123 @@ const core = require("@actions/core");
 
 const COMMENT_MARKER = "<!-- sensethelog-analysis -->";
 
+function formatFix(fix) {
+  if (!fix) return "";
+  fix = fix.replace(/(\d+)\.\s+/g, '\n$1. ');
+  fix = fix.replace(/\s+-\s+/g, '\n- ');
+  fix = fix.replace(/\n\n+/g, '\n\n');
+  return fix.trim();
+}
+
+function formatSingleError(error, index) {
+  let content = "";
+  const num = index + 1;
+
+  content += `### ${num}. ${error.jobName || 'Error'}\n\n`;
+
+  if (error.keyError) {
+    content += "**Error:**\n```\n" + error.keyError + "\n```\n\n";
+  }
+
+  if (error.rootCause) {
+    content += `**🎯 Root Cause:** ${error.rootCause}\n\n`;
+  }
+
+  if (error.explanation) {
+    content += `**Explanation:** ${error.explanation}\n\n`;
+  }
+
+  if (error.suggestedFix) {
+    content += "**💡 Suggested Fix:**\n" + formatFix(error.suggestedFix) + "\n\n";
+  }
+
+  if (error.codeExample) {
+    content += "**Example Fix:**\n```" + (error.codeLanguage || "") + "\n";
+    content += error.codeExample + "\n```\n\n";
+  }
+
+  if (error.confidence) {
+    const emoji = error.confidence >= 80 ? "🟢" : error.confidence >= 50 ? "🟡" : "🔴";
+    content += `**Confidence:** ${emoji} ${error.confidence}%\n\n`;
+  }
+
+  return content;
+}
+
 function formatPRComment(result, failedSteps, context) {
-  const { rootCause, suggestedFix, isRecurring, occurrences, signature } = result;
+  const { rootCause, suggestedFix, isRecurring, occurrences, signature, errors, summary } = result;
 
   let body = `${COMMENT_MARKER}
 ## 🔍 CI Failure Analysis
 
-**SenseTheLog** analyzed this failure and found the following:
-
 `;
+
+  // Recurring warning at top
+  if (isRecurring && occurrences > 1) {
+    body += `> ⚠️ **Recurring Failure** - This issue has occurred **${occurrences} times** before\n\n`;
+  }
 
   // Failed steps
   if (failedSteps && failedSteps.length > 0) {
     body += `### ❌ Failed Steps\n\n`;
     failedSteps.forEach((step) => {
-      body += `- **${step.jobName}** → \`${step.stepName}\`\n`;
+      const continueTag = step.continueOnError ? " *(continue-on-error)*" : "";
+      body += `- **${step.jobName}** → \`${step.stepName}\`${continueTag}\n`;
     });
     body += `\n`;
   }
 
-  // Root cause
-  if (rootCause) {
-    body += `### 🎯 Root Cause\n\n${rootCause}\n\n`;
+  // Handle multiple errors
+  if (errors && errors.length > 0) {
+    body += `### 📋 Found ${errors.length} Error(s)\n\n`;
+
+    if (summary) {
+      body += `> ${summary}\n\n`;
+    }
+
+    errors.forEach((error, index) => {
+      body += formatSingleError(error, index);
+      if (index < errors.length - 1) {
+        body += "---\n\n";
+      }
+    });
+  } else {
+    // Single error format (backward compatibility)
+    if (rootCause) {
+      body += `### 🎯 Root Cause\n\n${rootCause}\n\n`;
+    }
+
+    if (result.keyError) {
+      body += "### Key Error\n\n```\n" + result.keyError + "\n```\n\n";
+    }
+
+    if (result.explanation) {
+      body += `### Explanation\n\n${result.explanation}\n\n`;
+    }
+
+    if (suggestedFix) {
+      body += `### 💡 Suggested Fix\n\n${formatFix(suggestedFix)}\n\n`;
+    }
+
+    if (result.codeExample) {
+      body += "### Example Fix\n\n```" + (result.codeLanguage || "") + "\n";
+      body += result.codeExample + "\n```\n\n";
+    }
+
+    if (result.confidence) {
+      const emoji = result.confidence >= 80 ? "🟢" : result.confidence >= 50 ? "🟡" : "🔴";
+      body += `### Confidence\n\n${emoji} **${result.confidence}%**\n\n`;
+    }
   }
 
-  // Suggested fix
-  if (suggestedFix) {
-    body += `### 💡 Suggested Fix\n\n${suggestedFix}\n\n`;
+  // Fix PR link
+  if (result.fixPrUrl) {
+    body += `### 🔧 Auto-Fix PR\n\nA fix has been automatically generated: [View PR](${result.fixPrUrl})\n\n`;
   }
 
-  // Recurring warning
-  if (isRecurring && occurrences > 1) {
-    body += `### ⚠️ Recurring Issue\n\n`;
-    body += `This error has occurred **${occurrences} times** before. Consider prioritizing a permanent fix.\n\n`;
-  }
-
-  // Error signature
+  // Error signature (collapsed)
   if (signature) {
-    body += `<details>\n<summary>Error Signature</summary>\n\n\`\`\`\n${signature}\n\`\`\`\n</details>\n\n`;
+    body += `<details>\n<summary>📝 Error Signature</summary>\n\n\`\`\`\n${signature}\n\`\`\`\n</details>\n\n`;
   }
 
   // Footer
