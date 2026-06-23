@@ -11,6 +11,7 @@ permissions:
   actions: read
   contents: read
   checks: read
+  pull-requests: write
 
 jobs:
   test-typescript-error:
@@ -239,7 +240,15 @@ jobs:
     if: always()
     steps:
       - name: SenseTheLog Analysis
+        id: analyze
         uses: sensethelog/action@v1
         with:
           sensethelog-api-key: ${{ secrets.SENSETHELOG_API_KEY }}
           workflow-run-id: ${{ github.run_id }}
+          comment-on-pr: true
+
+      - name: Show outputs
+        run: |
+          echo "Failure ID: ${{ steps.analyze.outputs.failure-id }}"
+          echo "Is Recurring: ${{ steps.analyze.outputs.is-recurring }}"
+          echo "Comment URL: ${{ steps.analyze.outputs.comment-url }}"

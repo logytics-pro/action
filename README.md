@@ -50,6 +50,7 @@ on: [push, pull_request]
 permissions:
   actions: read
   contents: read
+  pull-requests: write  # Required for PR comments
 
 jobs:
   build:
@@ -74,6 +75,7 @@ jobs:
 **That's it!** When your CI fails, you'll see:
 - Root cause analysis in the GitHub Actions summary
 - Suggested fix with code examples
+- **Automatic PR comment** with the analysis
 - Link to view history and patterns in your dashboard
 
 ---
@@ -84,6 +86,7 @@ jobs:
 |---------|-------------|
 | **AI Root Cause Analysis** | Instantly understand why your CI failed |
 | **Suggested Fixes** | Get working code examples to fix the issue |
+| **PR Comments** | Auto-post analysis as PR comment |
 | **Pattern Detection** | Know when the same error keeps happening |
 | **Multi-Job Support** | Analyzes all failed jobs in one run |
 | **GitHub Summary** | See results directly in Actions tab |
@@ -176,11 +179,31 @@ PR comments are **enabled by default**. When CI fails on a PR, SenseTheLog autom
     # comment-on-pr: true  (default)
 ```
 
-The comment includes:
-- Failed steps
-- Root cause analysis
-- Suggested fix with code
-- Recurring issue warning
+**Example PR Comment:**
+
+> ## 🔍 CI Failure Analysis
+>
+> ### ❌ Failed Steps
+> - **build** → `npm test`
+>
+> ### 🎯 Root Cause
+> The test is trying to access `data.email` but `data` is undefined. The `validateInput` function doesn't handle null/undefined input.
+>
+> ### 💡 Suggested Fix
+> ```javascript
+> const validateInput = (data) => {
+>   if (!data?.email) return false;
+>   return data.email.includes('@');
+> };
+> ```
+>
+> ### ⚠️ Recurring Issue
+> This error has occurred **3 times** before. Consider prioritizing a permanent fix.
+
+**Features:**
+- Updates existing comment (no spam)
+- Works with `pull_request` and `workflow_run` events
+- Detects PR from commit SHA automatically
 
 To disable PR comments:
 
