@@ -6,6 +6,7 @@ const { generateSignature } = require("./signature");
 const { sendToApi } = require("./apiClient");
 const { formatSummary } = require("./formatter");
 const { createFixPR } = require("./fixGenerator");
+const { postPRComment } = require("./prComment");
 
 async function run() {
   try {
@@ -14,6 +15,7 @@ async function run() {
     const openaiKey = core.getInput("openai-api-key");
     const githubToken = core.getInput("github-token") || process.env.GITHUB_TOKEN;
     const makeFix = core.getInput("make-fix") === "true";
+    const commentOnPR = core.getInput("comment-on-pr") !== "false";
     const workflowRunId = core.getInput("workflow-run-id");
 
     const { context } = github;
@@ -97,6 +99,18 @@ async function run() {
     };
     const summary = formatSummary(result, failedSteps, summaryContext);
     await core.summary.addRaw(summary).write();
+
+    // Post comment on PR if enabled
+    if (commentOnPR) {
+      try {
+        const commentUrl = await postPRComment(githubToken, result, failedSteps, context);
+        if (commentUrl) {
+          core.setOutput("comment-url", commentUrl);
+        }
+      } catch (e) {
+        core.warning(`SenseTheLog: Failed to post PR comment: ${e.message}`);
+      }
+    }
 
     if (result.isRecurring) {
       core.warning(`SenseTheLog: This is a recurring failure (seen ${result.occurrences} times)`);

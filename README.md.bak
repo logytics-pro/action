@@ -112,7 +112,6 @@ Works with any CI failure, including:
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
 | `sensethelog-api-key` | Your SenseTheLog API key | Yes | - |
-| `comment-on-pr` | Post analysis as PR comment | No | `true` |
 | `workflow-run-id` | Workflow run ID to analyze | No | Current run |
 | `github-token` | Token for fetching logs | No | `github.token` |
 
@@ -125,7 +124,6 @@ Works with any CI failure, including:
 | `is-recurring` | `true` if this error has occurred before |
 | `root-cause` | AI-generated root cause analysis |
 | `suggested-fix` | AI-suggested fix with code example |
-| `comment-url` | URL of the PR comment |
 
 ---
 
@@ -164,32 +162,27 @@ jobs:
           sensethelog-api-key: ${{ secrets.SENSETHELOG_API_KEY }}
 ```
 
-### PR Comments (Automatic)
-
-PR comments are **enabled by default**. When CI fails on a PR, SenseTheLog automatically posts an analysis comment:
+### Post Analysis to PR Comment
 
 ```yaml
-- uses: sensethelog/action@v1
+- name: Analyze failure
+  id: analyze
   if: failure()
+  uses: sensethelog/action@v1
   with:
     sensethelog-api-key: ${{ secrets.SENSETHELOG_API_KEY }}
-    # comment-on-pr: true  (default)
-```
 
-The comment includes:
-- Failed steps
-- Root cause analysis
-- Suggested fix with code
-- Recurring issue warning
-
-To disable PR comments:
-
-```yaml
-- uses: sensethelog/action@v1
-  if: failure()
+- name: Comment on PR
+  if: failure() && github.event_name == 'pull_request'
+  uses: actions/github-script@v7
   with:
-    sensethelog-api-key: ${{ secrets.SENSETHELOG_API_KEY }}
-    comment-on-pr: false
+    script: |
+      github.rest.issues.createComment({
+        owner: context.repo.owner,
+        repo: context.repo.repo,
+        issue_number: context.issue.number,
+        body: `## CI Failure Analysis\n\n**Root Cause:** ${{ steps.analyze.outputs.root-cause }}\n\n**Fix:** ${{ steps.analyze.outputs.suggested-fix }}`
+      });
 ```
 
 ---
@@ -200,9 +193,8 @@ Add these permissions to your workflow:
 
 ```yaml
 permissions:
-  actions: read        # Required to fetch workflow logs
-  contents: read       # Required to access repository
-  pull-requests: write # Required for PR comments
+  actions: read   # Required to fetch workflow logs
+  contents: read  # Required to access repository
 ```
 
 ---

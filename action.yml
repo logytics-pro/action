@@ -24,6 +24,10 @@ inputs:
     description: 'Create a PR with the suggested fix (requires write permissions)'
     required: false
     default: 'false'
+  comment-on-pr:
+    description: 'Post analysis as a comment on the PR (requires pull-requests: write permission)'
+    required: false
+    default: 'true'
   workflow-run-id:
     description: 'Workflow run ID to analyze (for workflow_run trigger)'
     required: false
@@ -43,6 +47,8 @@ outputs:
     description: 'JSON array of failed steps with job and step names'
   fix-pr-url:
     description: 'URL of the fix PR (if make-fix was true)'
+  comment-url:
+    description: 'URL of the PR comment (if comment-on-pr was true)'
 
 runs:
   using: 'node20'
